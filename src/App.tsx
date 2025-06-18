@@ -21,6 +21,8 @@ import News from "@/pages/buyer/News";
 import NewsDev from "@/pages/developer/News";
 import Opportunities from "./pages/developer/Opportunities";
 import Earnings from "./pages/developer/Earnings";
+import ProjectDetails from "@/pages/developer/ProjectDetails";
+import EditProject from "@/pages/developer/EditProject";
 
 
 const queryClient = new QueryClient();
@@ -128,6 +130,22 @@ const App = () => {
                   element={
                     <PrivateRoute role="DEVELOPER">
                       <NewProject />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/developer/projects/:id" 
+                  element={
+                    <PrivateRoute role="DEVELOPER">
+                      <ProjectDetails />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/developer/projects/:id/edit" 
+                  element={
+                    <PrivateRoute role="DEVELOPER">
+                      <EditProject />
                     </PrivateRoute>
                   } 
                 />

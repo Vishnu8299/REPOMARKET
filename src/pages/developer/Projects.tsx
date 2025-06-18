@@ -16,9 +16,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import { twMerge } from "tailwind-merge";
 
 interface Project {
-  _id: string;
+  id: string;  // Changed from _id to id to match backend
   email: string;
   name: string;
   description: string;
@@ -27,7 +29,16 @@ interface Project {
   createdAt: string;
 }
 
+interface ApiResponse<T> {
+  timestamp: string;
+  status: number;
+  success: boolean;
+  message: string;
+  data: T;
+}
+
 const Projects = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -35,178 +46,255 @@ const Projects = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
   const MAX_RETRIES = 3;
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      try {
-        const userEmail = localStorage.getItem('email'); // Get user email from storage
-        if (!userEmail) {
-          setError('User email not found');
-          setLoading(false);
-          return;
-        }
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    setIsRetrying(true);
+    fetchProjects();
+  };
 
-        // Add retry mechanism
-        const fetchWithRetry = async (attempt: number) => {
-          try {
-            const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8081';
-            const response = await fetch(`${baseUrl}/api/projects/developer/${userEmail}`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'Content-Type': 'application/json',
-              },
-              credentials: 'include'
-            });
+  const API_BASE_URL = 'http://localhost:8081/api/projects';
 
-            if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.message || `Server responded with status: ${response.status}`);
-            }
+  const fetchProjects = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log('Fetching with token:', token);
+      
+      const response = await fetch(`${API_BASE_URL}/developer/${user.email}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include'
+      });
 
-            const data = await response.json();
-            setProjects(data.data || []); // Assuming the API returns data in { data: Project[] } format
-            setLoading(false);
-          } catch (error) {
-            console.error(`Attempt ${attempt + 1} failed:`, error);
-            if (attempt < MAX_RETRIES - 1) {
-              setRetryCount(attempt + 1);
-              // Exponential backoff
-              await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-              return fetchWithRetry(attempt + 1);
-            }
-            throw error;
-          }
-        };
+      console.log('Response status:', response.status);
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
 
-        await fetchWithRetry(0);
-      } catch (error) {
-        console.error('Error fetching projects:', error);
-        setError('Failed to connect to the server. Please check if the server is running and try again.');
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${responseText}`);
       }
-    };
 
+      const apiResponse: ApiResponse<Project[]> = JSON.parse(responseText);
+      
+      if (apiResponse.success && Array.isArray(apiResponse.data)) {
+        setProjects(apiResponse.data);
+      } else {
+        setProjects([]);
+        console.warn('Received invalid data format:', apiResponse);
+      }
+      
+      setLoading(false);
+      setIsRetrying(false);
+      setRetryCount(0);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+      if (retryCount < MAX_RETRIES) {
+        setRetryCount(prev => prev + 1);
+        setTimeout(() => {
+          handleRetry();
+        }, Math.min(1000 * Math.pow(2, retryCount), 10000));
+      } else {
+        setError(error.message || 'Failed to connect to the server.');
+        setLoading(false);
+        setIsRetrying(false);
+      }
+    }
+  };
+
+  useEffect(() => {
     fetchProjects();
   }, []);
 
   const cardVariants = {
     hover: {
-      scale: 1.02,
+      scale: 1.03,
+      boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.10)",
       transition: {
         type: "spring",
         stiffness: 300,
-        damping: 10
+        damping: 12
       }
     }
   };
 
+  // Add search and filter functionality
+  const filteredProjects = projects.filter(project => {
+    const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         project.description?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = filter === 'all' || 
+                         (filter === 'active' && project.isActive) ||
+                         (filter === 'completed' && !project.isActive);
+    return matchesSearch && matchesFilter;
+  });
+
+  // Enhanced loading animation
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 py-12 flex items-center justify-center">
-        <div className="text-xl text-gray-600">Loading projects...</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent mb-4"></div>
+          <div className="text-2xl text-blue-700 font-semibold animate-pulse">
+            {isRetrying ? 'Retrying...' : 'Loading your projects...'}
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 py-12 flex items-center justify-center">
-        <div className="text-xl text-red-600">{error}</div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex flex-col items-center justify-center gap-4">
+        <div className="text-2xl text-red-600 font-semibold">{error}</div>
+        <Button 
+          onClick={handleRetry}
+          disabled={isRetrying}
+          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 py-3 rounded-lg font-medium text-lg shadow"
+        >
+          {isRetrying ? 'Retrying...' : 'Retry'}
+        </Button>
       </div>
     );
   }
 
+  const handleProjectClick = (project: Project) => {
+    if (!project.id) {
+      console.error('Invalid project ID:', project);
+      return;
+    }
+    navigate(`/developer/projects/${project.id}`, { state: { project } });
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 py-12">
-      <div className="container mx-auto px-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-12">
+      <div className="container mx-auto px-4 max-w-7xl">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-12 gap-4">
           <div>
-            <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-              Projects
+            <h1 className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 mb-2 drop-shadow">
+              Your Projects
             </h1>
-            <p className="text-gray-600 mt-2">
+            <p className="text-gray-600 text-lg">
               Manage and collaborate on your development projects
             </p>
           </div>
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <motion.div
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            className="shadow-lg"
+          >
             <Button
               onClick={() => navigate("/developer/projects/new")}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-7 py-3 rounded-xl font-semibold text-lg shadow transition-all duration-200"
             >
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-5 h-5 mr-2" />
               New Project
             </Button>
           </motion.div>
         </div>
 
         {/* Filters and Search */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row gap-6 mb-12">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-blue-400 w-5 h-5" />
             <Input
               type="search"
               placeholder="Search projects..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 w-full"
+              className="pl-12 w-full h-12 text-lg rounded-xl border-blue-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 bg-white shadow"
             />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[180px]">
-              <Filter className="w-4 h-4 mr-2" />
+            <SelectTrigger className="w-[200px] h-12 text-lg rounded-xl border-blue-200 bg-white shadow">
+              <Filter className="w-5 h-5 mr-2" />
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Projects</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="in-progress">In Progress</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         {/* Projects Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((project) => (
-            <motion.div
-              key={project._id}
-              variants={cardVariants}
-              whileHover="hover"
-              className={cn(
-                "relative overflow-hidden rounded-xl bg-gradient-to-br backdrop-blur-sm p-6 shadow-lg border border-white/20",
-                project.isActive ? "from-green-500/5 to-green-500/10" : "from-gray-500/5 to-gray-500/10"
-              )}
-              onClick={() => navigate(`/developer/projects/${project._id}`)}
-            >
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-900">{project.name}</h3>
-                  <Eye className="w-4 h-4 text-gray-600" />
-                </div>
-                <p className="text-gray-600 text-sm mb-4">
-                  {project.description || 'No description provided'}
-                </p>
-                <div className="flex items-center justify-between text-sm text-gray-500">
-                  <div className="flex items-center space-x-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {filteredProjects.length > 0 ? (
+            filteredProjects.map((project) => (
+              <motion.div
+                key={`${project.id}-${project.name}`}
+                variants={cardVariants}
+                whileHover="hover"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className={twMerge(
+                  "group relative overflow-hidden rounded-2xl bg-white p-7 shadow-xl border border-blue-100 hover:shadow-2xl transition-all duration-300 cursor-pointer",
+                  project.isActive ? "hover:border-green-400" : "hover:border-gray-300"
+                )}
+                onClick={() => handleProjectClick(project)}
+              >
+                <div className="relative z-10">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-xl text-blue-700 truncate">{project.name}</h3>
+                    <Eye className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <p className="text-gray-600 text-base mb-4 line-clamp-3">
+                    {project.description || 'No description provided'}
+                  </p>
+                  <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center">
+                        <Users className="w-4 h-4 mr-1" />
+                        <span>{project.organization}</span>
+                      </div>
+                    </div>
                     <div className="flex items-center">
-                      <Users className="w-4 h-4 mr-1" />
-                      <span>{project.organization}</span>
+                      <Calendar className="w-4 h-4 mr-1" />
+                      <span>{new Date(project.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <div className="flex items-center">
-                    <Calendar className="w-4 h-4 mr-1" />
-                    <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                  <div className="flex items-center gap-2 mt-2">
+                    {project.isActive ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-100 text-green-700 text-xs font-semibold">
+                        <Star className="w-3 h-3 mr-1" /> Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-500 text-xs font-semibold">
+                        <Lock className="w-3 h-3 mr-1" /> Completed
+                      </span>
+                    )}
+                  </div>
+                  <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <ArrowRight className="w-6 h-6 text-blue-400" />
                   </div>
                 </div>
-                <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <ArrowRight className="w-5 h-5 text-gray-400" />
-                </div>
-              </div>
+                <div className="absolute inset-0 pointer-events-none group-hover:bg-gradient-to-br group-hover:from-blue-50 group-hover:to-purple-50 transition-all duration-300" />
+              </motion.div>
+            ))
+          ) : (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="col-span-full text-center py-12"
+            >
+              <div className="text-gray-400 text-2xl mb-4 font-semibold">No projects found</div>
+              <Button
+                onClick={() => navigate("/developer/projects/new")}
+                variant="outline"
+                className="hover:text-blue-600 border-blue-200"
+              >
+                Create your first project
+              </Button>
             </motion.div>
-          ))}
+          )}
         </div>
       </div>
     </div>
