@@ -1,22 +1,51 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { 
   ShoppingCart, Bell, Search, Menu, User, ChevronDown,
   Briefcase, GraduationCap, FileText, Settings, MessageSquare,
-  Heart, Users, HelpCircle, LogOut, LayoutGrid, Package, Home, ShoppingBag, Zap, Newspaper
+  Heart, Users, HelpCircle, LogOut, LayoutGrid, Package, Home, ShoppingBag, Zap, Newspaper,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import FooterSection from "@/components/home/FooterSection";
 import HeroSectionBUYER from "@/components/buyer/HeroSectionBUYER";
+import NewRepo from "@/components/buyer/NewRepo";
 import { useAuth } from "@/contexts/AuthContext";
+import { Transition } from "@headlessui/react";
+import { useInView } from "react-intersection-observer";
+import { useScroll, useTransform } from "framer-motion";
 
 const Marketplace = () => {
   const navigate = useNavigate();
   const { user: authUser, isAuthenticated, isLoading } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [showNextSection, setShowNextSection] = useState(false);
+  const [isHeroVisible, setIsHeroVisible] = useState(true);
+  const { scrollYProgress, scrollY } = useScroll();
+
+  const parallax = {
+    content: {
+      y: useTransform(scrollY, [0, 500], [200, -100]),
+      opacity: useTransform(scrollY, [0, 200], [0.3, 1]),
+      scale: useTransform(scrollY, [0, 500], [0.8, 1]),
+      filter: useTransform(
+        scrollY,
+        [0, 300],
+        ['blur(5px)', 'blur(0px)']
+      )
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsHeroVisible(false);
+      setShowNextSection(true);
+    }, 3000); // Adjust timing as needed
+    return () => clearTimeout(timer);
+  }, []);
 
   if (!isAuthenticated && !isLoading) {
     navigate('/login');
@@ -159,7 +188,7 @@ const Marketplace = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <div className="min-h-screen flex flex-col">
       <nav className="sticky top-0 w-full backdrop-blur-md border-b z-50 bg-white/90">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -278,12 +307,32 @@ const Marketplace = () => {
         </div>
       </nav>
 
-      <motion.main 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="flex-1"
-      >
-        <HeroSectionBUYER />
+      <motion.main className="relative flex-1 bg-gradient-to-b from-slate-50 via-blue-50/30 to-white">
+        <div className="relative z-10">
+          <motion.div className="min-h-screen relative">
+            <HeroSectionBUYER />
+          </motion.div>
+
+          <motion.div 
+            className="min-h-screen relative flex items-center justify-center px-6"
+            style={parallax.content}
+          >
+            <div className="w-full max-w-6xl">
+              <motion.div
+                className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl border border-blue-100/50"
+                initial={false}
+                animate={{ 
+                  y: [50, 0],
+                  opacity: [0, 1],
+                  transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }
+                }}
+              >
+                <NewRepo />
+              </motion.div>
+            </div>
+          </motion.div>
+        </div>
+
         <FooterSection />
       </motion.main>
     </div>
